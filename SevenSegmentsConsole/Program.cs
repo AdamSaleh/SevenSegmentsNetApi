@@ -11,15 +11,19 @@ using System.Threading.Tasks;
 namespace SevenSegmentsConsole
 {
 
+
 	class MainClass
 	{
+
 		public static void Main (string[] args)
 		{	
-			String company_id = "{EXAMPLE_COMPANY_ID}";
+			String company_id = "{COMPANY_TOKEN}"
 			var customer1_id = Guid.NewGuid ().ToString ();
 			var customer2_id = Guid.NewGuid ().ToString ();
 
-			var eventManager = new  EventManager ();
+
+
+			var eventManager = new  EventManager (company_id,new Uri("https://api.7segments.com/bulk"),customer1_id);
 
 			eventManager.SetRetryOnException (async exc => {
 				if (exc.Status == WebExceptionStatus.ConnectFailure) {
@@ -28,37 +32,28 @@ namespace SevenSegmentsConsole
 				return false;
 			});
 
-			eventManager.ScheduleCustomer (company_id, customer1_id, null)
-				.ScheduleEvent (company_id, customer1_id, "login", null)
-				.ScheduleEvent (company_id, customer1_id, "dothing", null)
-				.ScheduleEvent (company_id, customer1_id, "logout", null)
-				.ScheduleCustomer (company_id, customer2_id, null)
-				.ScheduleEvent (company_id, customer2_id, "login", null)
-				.ScheduleEvent (company_id, customer2_id, "dothat", null)
-				.ScheduleEvent (company_id, customer2_id, "logout", null);
+			eventManager.Identify (customer1_id,new Dictionary<string, string> () { { "email","asdf@asdf.com" } });
+			eventManager.Track ("login");
+			eventManager.Track ("dothing");
+			eventManager.Track ("logout");
 
-			var uploadTask = eventManager.BulkUpload ();
 
-			eventManager.ScheduleEvent (company_id, customer1_id, "relogin", null);
-
-			uploadTask.ContinueWith<EventManager> ((Task<EventManager> upload) => {
-				var manager = upload.Result;
-				manager.BulkUpload().Wait();
-				return manager;
-			});
+			while (eventManager.AreTasksEnqueued || eventManager.BulkInProgress) {
+				Console.WriteLine ("Waiting for tasks to be processed");
+				Thread.Sleep(500);
+			}
 
 			Command v;
 			Console.WriteLine ("SUCCESS:");
 			while (eventManager.SuccessfullCommands.TryDequeue (out v)) {
 				Console.WriteLine (v.JsonPayload);
 			}
-			Console.WriteLine ("Fail:");
-
-			while (eventManager.RetryCommands.TryDequeue (out v)) {
-				Console.WriteLine (v.JsonPayload);
+			Console.WriteLine ("Failed:");
+			Command vv;
+			while (eventManager.ErroredCommands.TryDequeue (out vv)) {
+				Console.WriteLine (vv.JsonPayload);
 			}
-			// Set the 'Method' property of the 'Webrequest' to 'POST'.
-		
+
 		}
 	
 
