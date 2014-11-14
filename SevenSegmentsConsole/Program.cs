@@ -17,7 +17,7 @@ namespace SevenSegmentsConsole
 
 		public static void Main (string[] args)
 		{	
-			String company_id = "{COMPANY_TOKEN}"
+			String company_id = "{COMPANY_ID}";
 			var customer1_id = Guid.NewGuid ().ToString ();
 			var customer2_id = Guid.NewGuid ().ToString ();
 
@@ -25,7 +25,7 @@ namespace SevenSegmentsConsole
 
 			var eventManager = new  EventManager (company_id,new Uri("https://api.7segments.com/bulk"),customer1_id);
 
-			eventManager.SetRetryOnException (async exc => {
+			eventManager.SetRetryOnException (exc => {
 				if (exc.Status == WebExceptionStatus.ConnectFailure) {
 					return true;
 				}

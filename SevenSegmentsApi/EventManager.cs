@@ -204,7 +204,7 @@ namespace SevenSegmentsApi
 			bulkCommandsInProgress = new ConcurrentQueue<List<Command>> ();
 
 			successfullCommands = new ConcurrentQueue<Command> ();
-			exceptionEvaluator = async (x) => {return false;};
+			exceptionEvaluator = (x) => {return false;};
 			CompanyToken = companyToken;
 			Target = target;
 			Customer = customer;
@@ -217,7 +217,7 @@ namespace SevenSegmentsApi
 			retryCommands = new ConcurrentQueue<Command> ();
 			successfullCommands = new ConcurrentQueue<Command> ();
 			bulkCommandsInProgress = new ConcurrentQueue<List<Command>> ();
-			exceptionEvaluator = async (x) => {return false;};
+			exceptionEvaluator = (x) => {return false;};
 			CompanyToken = companyToken;
 			Target = target;
 			Customer = customer;
@@ -267,8 +267,8 @@ namespace SevenSegmentsApi
 			}
 		}
 
-		private Func<WebException,Task<Boolean>> exceptionEvaluator;
-		public EventManager SetRetryOnException(Func<WebException,Task<Boolean>> evaluator){
+		private Func<WebException,Boolean> exceptionEvaluator;
+		public EventManager SetRetryOnException(Func<WebException,Boolean> evaluator){
 			exceptionEvaluator = evaluator;
 			return this;
 		}
@@ -383,7 +383,7 @@ namespace SevenSegmentsApi
 							ErroredCommands.Enqueue (item);
 						}
 					}catch(System.Net.WebException e){
-						if (await exceptionEvaluator (e)) {
+						if (exceptionEvaluator (e)) {
 							foreach (var item in tmpList) {
 								RetryCommands.Enqueue (item);
 							}
@@ -427,7 +427,7 @@ namespace SevenSegmentsApi
 								ErroredCommands.Enqueue (item);
 						}
 					}catch(System.Net.WebException e){
-						if (await exceptionEvaluator (e)) {
+						if (exceptionEvaluator (e)) {
 							foreach (var item in tmpList) {
 								RetryCommands.Enqueue (item);
 							}
