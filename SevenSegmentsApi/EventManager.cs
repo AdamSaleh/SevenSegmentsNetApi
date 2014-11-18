@@ -20,13 +20,16 @@ namespace SevenSegmentsApi
 
 	public abstract class Command {
 
-		public String Company;
-		public String Customer;
-		public Object Properties;
+		public static long Epoch(){
+			var t0 = DateTime.UtcNow;
+			var tEpoch = new DateTime (1970, 1, 1, 0, 0, 0);
+			return (long)Math.Truncate (t0.Subtract (tEpoch).TotalSeconds);
+		}
 
 		public String Response;
 		public BulkResult Result;
-
+		public Task<Command> Task;
+		public WebException WebException;
 		public abstract String Endpoint {
 			get ;
 		}
@@ -47,11 +50,14 @@ namespace SevenSegmentsApi
 	}
 
 	public class Customer : Command {
-		public Customer (String Company,String Customer,Object Properties)
+		private String Company;
+		private Object CustomerIds;
+		private Object Properties;
+		public Customer (String company,Object customerId,Object properties)
 		{
-			this.Company = Company;
-			this.Customer = Customer;
-			this.Properties = Properties;
+			Company = company;
+			CustomerIds = customerId;
+			Properties = properties;
 		}
 
 
@@ -60,19 +66,18 @@ namespace SevenSegmentsApi
 				return "crm/customers";
 			}
 		}
-			
 
 		public override Object JsonPayload {
 			get { 
 				if (Properties != null) {
 					return new Dictionary<Object,Object>(){
-						{"ids", new Dictionary<String,String>() {{"registered", Customer }}},
+						{"ids", CustomerIds },
 						{"company_id",  Company}, 
 						{"properties", Properties} 
 					};
 				} else {
 					return new Dictionary<Object,Object>(){
-						{"idss", new Dictionary<String,String>() {{"registered", Customer }}},
+						{"ids",  CustomerIds },
 						{"company_id",  Company}, 
 					};
 				}
@@ -81,17 +86,19 @@ namespace SevenSegmentsApi
 	}
 
 	public class Event : Command {
-		public String Type;
-		public long time;
-		public long age;
+		private String Type;
+		private long Time;
+		private String Company;
+		private Object Customer;
+		private Object Properties;
 
-		public Event (String Company,String Customer,String Type,Object Properties, long time)
+		public Event (String company,Object customer,String type,Object properties, long time)
 		{
-			this.Company = Company;
-			this.Customer = Customer;
-			this.Properties = Properties;
-			this.Type = Type;
-			this.time = time;
+			Company = company;
+			Customer = customer;
+			Properties = properties;
+			Type = type;
+			Time = time;
 		}
 
 		public override String Endpoint {
@@ -103,79 +110,28 @@ namespace SevenSegmentsApi
 			get { 
 				if (Properties != null) {
 					return new Dictionary<Object,Object>(){
-						{"customer_ids", new Dictionary<String,String>() {{"registered", Customer }}},
+						{"customer_ids", Customer},
 						{"company_id",  Company}, 
 						{"properties", Properties}, 
 						{"type",  Type}, 
-						{"age",  this.age}
+						{"age",  Epoch () - this.Time}
 					};
 				} else {
 					return  new Dictionary<Object,Object>(){
-						{"customer_ids", new Dictionary<String,String>() {{"registered", Customer }}},
+						{"customer_ids", Customer },
 						{"company_id",  Company}, 
 						{"type",  Type}, 
-						{"age",  this.age},
+						{"age",  Epoch () - this.Time},
 					};
 				}
 			}
 		}
 	}
 
-	public class EventManager
+	public class SevenSegments
 	{
-		private static long Epoch(){
-			var t0 = DateTime.UtcNow;
-			var tEpoch = new DateTime (1970, 1, 1, 0, 0, 0);
-			return (long)Math.Truncate (t0.Subtract (tEpoch).TotalSeconds);
-		}
-
-
-		private static async Task<List<Command>> bulkUpload(Uri target, List<Command> bulk ){
-			long currentTime = Epoch ();
-
-			foreach (var item in bulk){
-				if (item is Event) {
-					var c = (Event)item;
-					c.age = currentTime - c.time;
-				}
-			}
-			String payload = JsonConvert.SerializeObject( new Dictionary<String,Object>() {
-				{"commands", (from item in bulk	select new Dictionary<String,Object>(){{"name",item.Endpoint},{"data",item.JsonPayload}}).ToList()}});
-			String result = await post (new Uri(target.ToString()+"/bulk"),payload);
-
-			return deserializeBulkManualy (bulk,result);
-		}
-
-		private static List<Command> deserializeBulkManualy(List<Command> bulk, String input){
-			JObject o = JObject.Parse (input);
-			var l = o ["results"];
-			if (l == null) {
-				return bulk.Select ((Command arg) => {
-					arg.Result = BulkResult.Error;
-					arg.Response = input;
-					return arg;
-				}).ToList ();
-			}
-
-			return bulk.Zip(l,(Command c, JToken item) => {
-					BulkResult tmpBulkResult = BulkResult.Error;
-					var status = item ["status"];
-					if (status != null) {
-						if (status.Value<String> () == "ok") {
-							tmpBulkResult = BulkResult.Ok;
-						}
-						if (status.Value<String> () == "retry") {
-							tmpBulkResult = BulkResult.Retry;
-						}
-					}
-				c.Response = item.ToString();
-				c.Result = tmpBulkResult;
-					return c;
-			}).ToList();
-
-		}
-
-		private static async Task<String> post(Uri url, string postdata)
+			
+		protected static async Task<String> post(Uri url, string postdata)
 		{
 			var request = WebRequest.Create(url) as HttpWebRequest;
 			request.Method = "POST";
@@ -193,182 +149,221 @@ namespace SevenSegmentsApi
 			string received = await sr.ReadToEndAsync();
 
 			return received;
+		}
+			
 
+		protected readonly String CompanyToken;
+		protected readonly Uri Target;
+		protected Object Customer;
+
+		public SevenSegments (String companyToken, Uri target, String customer) {
+		    CompanyToken = companyToken;
+			Target = target;
+			Customer = customer;
+		}
+
+		public Task<Command> Update(Object properties){
+			return ScheduleCustomer (CompanyToken, Customer, properties);
+		}
+
+		public Task<Command> Identify(Object customer,Object properties){
+			Customer = customer;
+			return ScheduleCustomer (CompanyToken, customer, properties);
+		}
+
+		protected Task<Command> ScheduleCustomer(String Company,Object Customer,Object Properties){
+			return ScheduleCommand(new Customer( Company, Customer, Properties));
+		}
+	
+		public Task<Command> Track(String Type,Object Properties, long Time){
+			return ScheduleCommand(new Event( CompanyToken, Customer, Type, Properties, Time));
+		}
+
+		public Task<Command> Track(String Type, long Time){
+			return ScheduleCommand(new Event( CompanyToken, Customer, Type, null, Time));
+		}
+
+	
+		public Task<Command> Track(String Type){
+			return ScheduleCommand(new Event( CompanyToken, Customer, Type, null, Command.Epoch()));
+		}
+
+		public Task<Command> Track(String Type,Object Properties){
+			return ScheduleCommand(new Event( CompanyToken, Customer, Type, Properties, Command.Epoch()));
+		}
+
+		protected virtual async Task<Command> ScheduleCommand(Command command){
+			try{
+				string result = await post(new Uri(Target.ToString()+command.Endpoint),JsonConvert.SerializeObject(command.JsonPayload));
+				command.Response = result;
+				command.Result = BulkResult.Ok;
+			}catch(System.Net.WebException e){
+				command.Result = BulkResult.Error;
+				command.WebException = e;
+			}
+			return command;
+		}
+			
+	}
+
+	public class SeventSegmentsBulkUpload : SevenSegments
+	{
+		protected static async Task<List<Command>> bulkUpload(Uri target, List<Command> bulk ){
+			String payload = JsonConvert.SerializeObject( new Dictionary<String,Object>() {
+				{"commands", (from item in bulk	select new Dictionary<String,Object>(){{"name",item.Endpoint},{"data",item.JsonPayload}}).ToList()}});
+			String result = await post (new Uri(target.ToString()+"/bulk"),payload);
+
+			return deserializeBulkManualy (bulk,result);
+		}
+
+		protected static List<Command> deserializeBulkManualy(List<Command> bulk, String input){
+			JObject o = JObject.Parse (input);
+			var l = o ["results"];
+			if (l == null) {
+				return bulk.Select ((Command arg) => {
+					arg.Result = BulkResult.Error;
+					arg.Response = input;
+					return arg;
+				}).ToList ();
+			}
+
+			return bulk.Zip(l,(Command c, JToken item) => {
+				BulkResult tmpBulkResult = BulkResult.Error;
+				var status = item ["status"];
+				if (status != null) {
+					if (status.Value<String> () == "ok") {
+						tmpBulkResult = BulkResult.Ok;
+					}
+					if (status.Value<String> () == "retry") {
+						tmpBulkResult = BulkResult.Retry;
+					}
+				}
+				c.Response = item.ToString();
+				c.Result = tmpBulkResult;
+				return c;
+			}).ToList();
 
 		}
 
 
-		private readonly ConcurrentQueue<Command> commands;
+		public readonly ConcurrentQueue<Command> commands;
 		private readonly ConcurrentQueue<List<Command>> bulkCommandsInProgress;
 		private readonly ConcurrentQueue<Command> erroredCommands;
 		private readonly ConcurrentQueue<Command> retryCommands;
 		private readonly ConcurrentQueue<Command> successfullCommands;
 
-		private readonly Boolean AutomaticUpload;
-
-		private readonly String CompanyToken;
-		private readonly Uri Target;
-		private String Customer;
-		private static long previousEpoch=0;
-
-		public EventManager (String companyToken, Uri target, String customer) {
-			commands = new ConcurrentQueue<Command> ();
-			erroredCommands = new ConcurrentQueue<Command> ();
-			retryCommands = new ConcurrentQueue<Command> ();
-			bulkCommandsInProgress = new ConcurrentQueue<List<Command>> ();
-
-			successfullCommands = new ConcurrentQueue<Command> ();
-			exceptionEvaluator = (x) => {return false;};
-			CompanyToken = companyToken;
-			Target = target;
-			Customer = customer;
-			AutomaticUpload = true;
+		public SeventSegmentsBulkUpload (String companyToken, Uri target, String customer) : base(companyToken,target,customer) {
+			commands = new ConcurrentQueue<Command>();
+			erroredCommands = new ConcurrentQueue<Command>();
+			retryCommands = new ConcurrentQueue<Command>();
+			successfullCommands = new ConcurrentQueue<Command>();
 		}
-
-		public EventManager (String companyToken, Uri target, String customer, Boolean automaticUpload) {
-			commands = new ConcurrentQueue<Command> ();
-			erroredCommands = new ConcurrentQueue<Command> ();
-			retryCommands = new ConcurrentQueue<Command> ();
-			successfullCommands = new ConcurrentQueue<Command> ();
-			bulkCommandsInProgress = new ConcurrentQueue<List<Command>> ();
-			exceptionEvaluator = (x) => {return false;};
-			CompanyToken = companyToken;
-			Target = target;
-			Customer = customer;
-			AutomaticUpload = automaticUpload;
-		}
-
-		public Task<EventManager> Update(Object properties){
-			return ScheduleCustomer (CompanyToken, Customer, properties);
-		}
-
-		public Task<EventManager> Identify(String customer,Object properties){
-			Customer = customer;
-			return ScheduleCustomer (CompanyToken, customer, properties);
-		}
-
-		public ConcurrentQueue<Command> Commands {
-			get {
-				return commands;
-			}
-		}
+			
 
 		public ConcurrentQueue<Command> ErroredCommands {
 			get {
 				return erroredCommands;
 			}
 		}
-
-		public ConcurrentQueue<Command> RetryCommands {
-			get {
-				return retryCommands;
-			}
-		}
-
+			
 		public ConcurrentQueue<Command> SuccessfullCommands {
 			get {
 				return successfullCommands;
 			}
 		}
 
-		private Func<WebException,Boolean> exceptionEvaluator;
-		public EventManager SetRetryOnException(Func<WebException,Boolean> evaluator){
-			exceptionEvaluator = evaluator;
-			return this;
+
+		protected override Task<Command> ScheduleCommand(Command command){
+			command.Task = new Task<Command> (() => {
+				return command;
+			});
+
+			commands.Enqueue(command);
+			return command.Task;
 		}
 
-		private Task<EventManager> ScheduleCustomer(String Company,String Customer,Object Properties){
-			return ScheduleCommand(new Customer( Company, Customer, Properties));
-		}
-	
-		public Task<EventManager> Track(String Type,Object Properties, long Time){
-			return ScheduleCommand(new Event( CompanyToken, Customer, Type, Properties, Time));
-		}
-
-		public Task<EventManager> Track(String Type, long Time){
-			return ScheduleCommand(new Event( CompanyToken, Customer, Type, null, Time));
-		}
-
-	
-		public Task<EventManager> Track(String Type){
-			return ScheduleCommand(new Event( CompanyToken, Customer, Type, null, Epoch()));
-		}
-
-		public Task<EventManager> Track(String Type,Object Properties){
-			return ScheduleCommand(new Event( CompanyToken, Customer, Type, Properties, Epoch()));
-		}
-
-		private Task<EventManager> ScheduleCommand(Command command){
-			Commands.Enqueue(command);
-			if (AutomaticUpload) {
-				return this.BulkUpload ();
-			} else {
-				return Task.FromResult (this);
+		private Command processFinishedCommand(Command item){
+			if(item.Result == BulkResult.Ok){
+				SuccessfullCommands.Enqueue (item);
+			}else if(item.Result == BulkResult.Retry){
+				retryCommands.Enqueue(item);
+			}else {
+				ErroredCommands.Enqueue(item);
 			}
+			item.Task.Start();
+			return item;
 		}
-			
-		public Boolean BulkInProgress{
-			get {
-				return bulkCommandsInProgress.IsEmpty == false;
+
+		private Command failCommand(Command item,WebException e){
+			item.WebException = e;
+			ErroredCommands.Enqueue (item);
+			return item;
+		}
+
+		public void ScheduleRetry(){
+			Command tmpCommand;
+			while (retryCommands.TryDequeue (out tmpCommand)) {
+				ScheduleCommand (tmpCommand);
 			}
 		}
 
-		public Boolean AreTasksEnqueued{
-			get {
-				return Commands.IsEmpty == false;
-			}
-		}
-
-		public Boolean AreRetryTasksEnqueued{
-			get {
-				return RetryCommands.IsEmpty == false;
-			}
-		}
-
-		public List<int> errored = new List<int>();
-		public async Task<EventManager> BulkUpload(){
-			while (AreTasksEnqueued) {
+		public async Task<SeventSegmentsBulkUpload> BulkUpload(){
+			while (commands.Count > 0) {
 				List<Command> tmpList = new List<Command> ();
 				Command tmpCommand;
-			
-				while (tmpList.Count < 49 && Commands.TryDequeue (out tmpCommand)) {
+				while (tmpList.Count < 49 && commands.TryDequeue (out tmpCommand)) {
 					tmpList.Add (tmpCommand);
 				}
+				
 				if (tmpList.Count > 0) {
-					try{
-						bulkCommandsInProgress.Enqueue(tmpList);
-						var result = (await bulkUpload (Target,tmpList));
-
-
-						foreach(var item in result){
-							if(item.Result == BulkResult.Ok){
-								SuccessfullCommands.Enqueue (item);
-							}else if(item.Result == BulkResult.Retry){
-								RetryCommands.Enqueue(item);
-							}else {
-								ErroredCommands.Enqueue(item);
-							}
+					try {
+						var result = await bulkUpload (Target, tmpList);
+						foreach(var cmd in result){
+							processFinishedCommand (cmd);
 						}
-					}catch(System.Net.WebException e){
-						if (exceptionEvaluator (e)) {
-							foreach (var item in tmpList) {
-								RetryCommands.Enqueue (item);
-							}
-						} else {
-							foreach (var item in tmpList) {
-								ErroredCommands.Enqueue (item);
-							}
-
+					} catch (System.Net.WebException e) {
+						foreach(var cmd in tmpList){
+							failCommand (cmd,e);
 						}
 					}
 				}
-				List<Command> tmp;
-				bulkCommandsInProgress.TryDequeue(out tmp);
-
+				
 			}
 			return this;
+
 		} 
 
+	}
+
+	public class SeventSegmentsAutomaticBulkUpload : SeventSegmentsBulkUpload
+	{
+		public readonly Task EventLoop;
+		private Boolean Running;
+		private Task<SeventSegmentsBulkUpload> Uploading;
+		private Task Finishing = null;
+		public SeventSegmentsAutomaticBulkUpload (String companyToken, Uri target, String customer,int delay) : base(companyToken,target,customer) {
+			Running = true;
+			EventLoop = new Task (delegate {
+				while(Running){
+					Uploading = this.BulkUpload();
+					Uploading.Wait();
+					if(Finishing!=null){
+						Finishing.Start();
+						return;
+					}
+					Task.Delay(delay).Wait();
+				}
+			});
+			EventLoop.Start ();
+		}
+
+		public Task EndEventLoop(){
+			Finishing = new Task (delegate {
+
+			});
+			return Finishing;
+		}
 
 	}
+
 }

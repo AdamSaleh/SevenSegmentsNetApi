@@ -39,31 +39,23 @@ namespace SevenSegmentsConsole
 
 		public static void Main (string[] args)
 		{	
-			String company_id = "{COMPANY-ID}"
+			String company_id = "d5b474ce-61b8-11e4-8f55-0cc47a049482";
 			var customer1_id = Guid.NewGuid ().ToString ();
 			var customer2_id = Guid.NewGuid ().ToString ();
 
 
 
-			var eventManager = new  EventManager (company_id,new Uri("https://api.7segments.com/"),customer1_id);
+			var eventManager = new  SeventSegmentsAutomaticBulkUpload (company_id,new Uri("https://api.7segments.com/"),customer1_id,1000);
 
-			eventManager.SetRetryOnException (exc => {
-				if (exc.Status == WebExceptionStatus.ConnectFailure) {
-					return true;
-				}
-				return false;
-			});
-
-			eventManager.Identify (customer1_id,new Dictionary<String, String> () {{"email","asdf@asdf.com"},{"tag","mfp"}});//,new CustomerProperty("a@b.com", new String[] {"foo","bar"}));
-			eventManager.Track ("login");
+			eventManager.Identify (
+				new Dictionary<String, String> () {{"registered",customer1_id}},
+				new Dictionary<String, Object> () {
+					{"email","asdf@asdf.com"}});
+			Task<Command> waitForLogin = eventManager.Track ("login");
 			eventManager.Track ("dothing",new EventProperty(10));
 			eventManager.Track ("logout");
 
-
-			while (eventManager.AreTasksEnqueued || eventManager.BulkInProgress) {
-				Console.WriteLine ("Waiting for tasks to be processed");
-				Thread.Sleep(500);
-			}
+			eventManager.EndEventLoop ().Wait();
 
 			Command v;
 			Console.WriteLine ("SUCCESS:");
