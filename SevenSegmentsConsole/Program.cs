@@ -37,7 +37,7 @@ namespace SevenSegmentsConsole
 
 		}
 
-		public static String company_token = "d5b474ce-61b8-11e4-8f55-0cc47a049482";
+		public static String company_token = "{COMPANY_TOKEN}"
 
 		public static void BasicTracking(){
 			var customer1_id = Guid.NewGuid ().ToString ();
