@@ -37,37 +37,59 @@ namespace SevenSegmentsConsole
 
 		}
 
-		public static void Main (string[] args)
-		{	
-			String company_id = "d5b474ce-61b8-11e4-8f55-0cc47a049482";
+		public static String company_token = "d5b474ce-61b8-11e4-8f55-0cc47a049482";
+
+		public static void BasicTracking(){
 			var customer1_id = Guid.NewGuid ().ToString ();
-			var customer2_id = Guid.NewGuid ().ToString ();
 
+			var sevenSegments = new  SevenSegments (company_token,new Uri("https://api.7segments.com/"),customer1_id);
 
+			sevenSegments.Identify (
+				customer1_id,
+				new Dictionary<String, Object> () {
+					{"email","asdf@asdf.com"}}).Wait();
+			sevenSegments.Track ("login").Wait();
+			sevenSegments.Track ("dothing",new EventProperty(10)).Wait();
+			sevenSegments.Track ("logout").Wait ();
+		}
 
-			var eventManager = new  SeventSegmentsAutomaticBulkUpload (company_id,new Uri("https://api.7segments.com/"),customer1_id,1000);
+		public static void ManualBulkTracking(){
+			var customer1_id = Guid.NewGuid ().ToString ();
 
-			eventManager.Identify (
+			var sevenSegments = new  SeventSegmentsBulkUpload (company_token,new Uri("https://api.7segments.com/"),customer1_id);
+
+			sevenSegments.Identify (
+				new Dictionary<String, String> () {{"registered",customer1_id}},
+				new Dictionary<String, Object> () {
+					{"email","asdf@asdf.com"}}).Wait();
+			sevenSegments.Track ("login").Wait();
+			sevenSegments.Track ("dothing",new EventProperty(10)).Wait();
+			sevenSegments.Track ("logout").Wait ();
+
+			sevenSegments.BulkUpload ().Wait();
+		}
+			
+		public static void AutomaticBulkTracking(){
+			var customer1_id = Guid.NewGuid ().ToString ();
+
+			var sevenSegments = new  SeventSegmentsAutomaticBulkUpload (company_token,new Uri("https://api.7segments.com/"),customer1_id,1000);
+
+			sevenSegments.Identify (
 				new Dictionary<String, String> () {{"registered",customer1_id}},
 				new Dictionary<String, Object> () {
 					{"email","asdf@asdf.com"}});
-			Task<Command> waitForLogin = eventManager.Track ("login");
-			eventManager.Track ("dothing",new EventProperty(10));
-			eventManager.Track ("logout");
+			sevenSegments.Track ("login");
+			sevenSegments.Track ("dothing",new EventProperty(10));
+			sevenSegments.Track ("logout");
 
-			eventManager.EndEventLoop ().Wait();
+			sevenSegments.EndEventLoop ().Wait();
+		}
 
-			Command v;
-			Console.WriteLine ("SUCCESS:");
-			while (eventManager.SuccessfullCommands.TryDequeue (out v)) {
-				Console.WriteLine (v);
-			}
-			Console.WriteLine ("Failed:");
-			Command vv;
-			while (eventManager.ErroredCommands.TryDequeue (out vv)) {
-				Console.WriteLine (vv);
-			}
-
+		public static void Main (string[] args)
+		{	
+			BasicTracking ();
+			ManualBulkTracking ();
+			AutomaticBulkTracking ();
 		}
 	
 

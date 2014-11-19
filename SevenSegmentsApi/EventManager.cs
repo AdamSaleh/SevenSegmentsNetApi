@@ -128,7 +128,26 @@ namespace SevenSegmentsApi
 		}
 	}
 
-	public class SevenSegments
+	public interface SevenSegmentsApi {
+		Task<Command> Update (Object properties);
+
+		Task<Command> Identify(Object customer,Object properties);
+
+		Task<Command> Identify (String customer, Object properties);
+
+		Task<Command> Track (String Type, Object Properties, long Time);
+
+		Task<Command> Track (String Type, long Time);
+
+		Task<Command> Track (String Type);
+
+		Task<Command> Track (String Type, Object Properties);
+
+		Task<Command> ScheduleCommand (Command command);
+
+	}
+
+	public class SevenSegments : SevenSegmentsApi 
 	{
 			
 		protected static async Task<String> post(Uri url, string postdata)
@@ -156,10 +175,16 @@ namespace SevenSegmentsApi
 		protected readonly Uri Target;
 		protected Object Customer;
 
-		public SevenSegments (String companyToken, Uri target, String customer) {
+		public SevenSegments (String companyToken, Uri target, Object customer) {
 		    CompanyToken = companyToken;
 			Target = target;
 			Customer = customer;
+		}
+
+		public SevenSegments (String companyToken, Uri target, string customer) {
+			CompanyToken = companyToken;
+			Target = target;
+			Customer =  new Dictionary<String, String> () {{"registered",customer}};
 		}
 
 		public Task<Command> Update(Object properties){
@@ -168,6 +193,11 @@ namespace SevenSegmentsApi
 
 		public Task<Command> Identify(Object customer,Object properties){
 			Customer = customer;
+			return ScheduleCustomer (CompanyToken, customer, properties);
+		}
+
+		public Task<Command> Identify(String customer,Object properties){
+			Customer = new Dictionary<String, String> () {{"registered",customer}};
 			return ScheduleCustomer (CompanyToken, customer, properties);
 		}
 
@@ -192,7 +222,7 @@ namespace SevenSegmentsApi
 			return ScheduleCommand(new Event( CompanyToken, Customer, Type, Properties, Command.Epoch()));
 		}
 
-		protected virtual async Task<Command> ScheduleCommand(Command command){
+		public virtual async Task<Command> ScheduleCommand(Command command){
 			try{
 				string result = await post(new Uri(Target.ToString()+command.Endpoint),JsonConvert.SerializeObject(command.JsonPayload));
 				command.Response = result;
@@ -246,7 +276,7 @@ namespace SevenSegmentsApi
 		}
 
 
-		public readonly ConcurrentQueue<Command> commands;
+		private readonly ConcurrentQueue<Command> commands;
 		private readonly ConcurrentQueue<List<Command>> bulkCommandsInProgress;
 		private readonly ConcurrentQueue<Command> erroredCommands;
 		private readonly ConcurrentQueue<Command> retryCommands;
@@ -273,7 +303,7 @@ namespace SevenSegmentsApi
 		}
 
 
-		protected override Task<Command> ScheduleCommand(Command command){
+		public override Task<Command> ScheduleCommand(Command command){
 			command.Task = new Task<Command> (() => {
 				return command;
 			});
@@ -300,17 +330,15 @@ namespace SevenSegmentsApi
 			return item;
 		}
 
-		public void ScheduleRetry(){
-			Command tmpCommand;
-			while (retryCommands.TryDequeue (out tmpCommand)) {
-				ScheduleCommand (tmpCommand);
-			}
-		}
-
 		public async Task<SeventSegmentsBulkUpload> BulkUpload(){
 			while (commands.Count > 0) {
 				List<Command> tmpList = new List<Command> ();
 				Command tmpCommand;
+
+				while (tmpList.Count < 49 && retryCommands.TryDequeue (out tmpCommand)) {
+					tmpList.Add (tmpCommand);
+				}
+
 				while (tmpList.Count < 49 && commands.TryDequeue (out tmpCommand)) {
 					tmpList.Add (tmpCommand);
 				}
@@ -326,8 +354,7 @@ namespace SevenSegmentsApi
 							failCommand (cmd,e);
 						}
 					}
-				}
-				
+				}	
 			}
 			return this;
 
@@ -362,6 +389,9 @@ namespace SevenSegmentsApi
 
 			});
 			return Finishing;
+		}
+		~SeventSegmentsAutomaticBulkUpload(){
+			EndEventLoop ().Wait ();
 		}
 
 	}
