@@ -37,7 +37,7 @@ namespace SevenSegmentsConsole
 
 		}
 
-		public static String company_token = "{COMPANY_TOKEN}"
+		public static String company_token = "{COMPANY_TOKEN}";
 
 		public static void BasicTracking(){
 			var customer1_id = Guid.NewGuid ().ToString ();
@@ -59,12 +59,13 @@ namespace SevenSegmentsConsole
 			var sevenSegments = new  SeventSegmentsBulkUpload (company_token,new Uri("https://api.7segments.com/"),customer1_id);
 
 			sevenSegments.Identify (
-				new Dictionary<String, String> () {{"registered",customer1_id}},
+				new Dictionary<String, String> () { { "registered",customer1_id } },
 				new Dictionary<String, Object> () {
-					{"email","asdf@asdf.com"}}).Wait();
-			sevenSegments.Track ("login").Wait();
-			sevenSegments.Track ("dothing",new EventProperty(10)).Wait();
-			sevenSegments.Track ("logout").Wait ();
+					{ "email","asdf@asdf.com" }
+				});
+			sevenSegments.Track ("login");;
+			sevenSegments.Track ("dothing",new EventProperty(10));
+			sevenSegments.Track ("logout");
 
 			sevenSegments.BulkUpload ().Wait();
 		}
